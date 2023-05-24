@@ -67,9 +67,21 @@ int main(int argc, char* argv[])
 {
     VkGlAppOptions options;
 
+    bool msaa_enabled = options.enable_msaa; // start with default value
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const auto arg = std::string(argv[i]);
+
+        if (arg == "-msaa")
+            msaa_enabled = true;
+        else if (arg == "-no-msaa")
+            msaa_enabled = false;
+    }
+
     // IMPORTANT: MSAA sample-count must be a power-of-two number !!!
     int msaa_sample_count =
-        options.enable_msaa
+        msaa_enabled
         ? 4
         : 1;
 
