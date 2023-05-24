@@ -63,6 +63,8 @@ std::tm get_time_now()
     return now;
 }
 
+int msaa_sample_count = 0; // global variable, so we can show it in window title
+
 int main(int argc, char* argv[])
 {
     VkGlAppOptions options;
@@ -80,7 +82,7 @@ int main(int argc, char* argv[])
     }
 
     // IMPORTANT: MSAA sample-count must be a power-of-two number !!!
-    int msaa_sample_count =
+    msaa_sample_count =
         msaa_enabled
         ? 4
         : 1;
@@ -444,7 +446,9 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 void update_window_title(GLFWwindow* window)
 {
     const char* gl_version = (const char*)glGetString(GL_VERSION);
-    std::string title = std::string() + "[vkgl-test @ " + gl_version + "] vk_quad_z = " + std::to_string(vk_quad_z) + " ... change via mouse scroll-wheel";
+    std::string title = std::string()
+        + "[vkgl-test @ " + gl_version + "] vk_quad_z = " + std::to_string(vk_quad_z) + " ... change via mouse scroll-wheel"
+        + " (MSAA-Samples: " + std::to_string(msaa_sample_count) + ")";
     glfwSetWindowTitle(window, title.c_str());
 }
 
