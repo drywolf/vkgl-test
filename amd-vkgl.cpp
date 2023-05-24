@@ -17,6 +17,8 @@
 #include <learnopengl/shader_m.h>
 #include <learnopengl/camera.h>
 
+#include <vk-render.h>
+
 #include <filesystem>
 #include <iostream>
 
@@ -250,6 +252,9 @@ int main(int argc, char* argv[])
 
     // Call resize_window() manually once, to set up the camera projection matrix & GL viewport dimensions
     resize_window(options.width, options.height);
+
+    if (!vk_init())
+        return -1;
 
     // render loop
     // -----------
