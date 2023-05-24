@@ -21,16 +21,12 @@
 
 #include <filesystem>
 #include <iostream>
+#include <map>
 
-struct VkGlAppOptions
-{
-    uint32_t width = 0;
-    uint32_t height = 0;
-
-    int msaa_sample_count = 1;
-};
+#include "vkgl_options.h"
 
 void resize_window(int width, int height);
+void update_window_title(GLFWwindow* window);
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -38,6 +34,9 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 unsigned int loadTexture(const char* path);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+
+// z-buffer position of the drawn Vulkan Quad (can be changed interactively via mouse-scroll)
+float vk_quad_z = 0.95f;
 
 // camera
 //Camera camera(glm::vec3(0, +1.0f, +10.0f), glm::vec3(0, 1, 0)); // simple straight view
@@ -53,8 +52,9 @@ glm::mat4 projection;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-void draw_GL_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id);
+void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id);
 void print_gl_default_framebuffer_info();
+bool check_gl_capability();
 
 std::tm get_time_now()
 {
@@ -83,18 +83,15 @@ int main(int argc, char* argv[])
     logger << " APP START - " << std::put_time(&start_time, "%a %b %d %H:%M:%S %Y") << std::endl;
     logger << "--------------------------------------------------------------------------------" << std::endl;
 
-    if (!options.width) options.width = 800;
-    if (!options.height) options.height = 600;
-
     lastX = (float)options.width / 2.0;
     lastY = (float)options.height / 2.0;
 
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // we do not handle window resizing in this prototype -> disable GLFW window resize/maximize
 
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_USE_DEBUG_CONTEXT);
@@ -130,20 +127,28 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    if (!check_gl_capability())
+    {
+        logger << "ERROR: Insufficient GL version/extension-features" << std::endl;
+        return -1;
+    }
+
+    print_gl_default_framebuffer_info();
+
     logger << "Enabling GL Debug Output..." << std::endl;
     if (!gl_enable_debug_output())
     {
         logger << "ERROR: Failed to initialize GL DEBUG OUTPUT" << std::endl;
     }
 
-    print_gl_default_framebuffer_info();
-
     GLuint gl_color_tex = 0, gl_depth_tex = 0;
-    // initialize vulkan + interop resources
+
+    // initialize vulkan & interop
     if (!vk_init(
         options.width,
         options.height,
         options.msaa_sample_count,
+        options.ENABLE_VULKAN_VALIDATION_LAYER,
         &gl_color_tex,
         &gl_depth_tex
     ))
@@ -281,6 +286,7 @@ int main(int argc, char* argv[])
 
     // Call resize_window() manually once, to set up the camera projection matrix & GL viewport dimensions
     resize_window(options.width, options.height);
+    update_window_title(window);
 
     // render loop
     // -----------
@@ -301,19 +307,28 @@ int main(int argc, char* argv[])
         // -----
         processInput(window);
 
+        // clear color & depth via vulkan
+        vk_clear_fbo();
+
         // render
         // ------
         // bind vkgl interop framebuffer and draw scene as we normally would
         GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, vkgl_framebuffer));
 
-        // make sure we clear the framebuffer's content
-        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // clear color & depth via GL (this is just for testing)
+        //glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+        //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        draw_GL_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 0.0f, -3.0f)), shader, cubeTexture);
-        draw_GL_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)), shader, cubeTexture);
-        draw_GL_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(+3.0f, 0.0f, +3.0f)), shader, cubeTexture);
-        draw_GL_mesh(planeVAO, 6, glm::mat4(1.0f), shader, floorTexture);
+        // draw some GL
+        gl_draw_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 0.0f, -3.0f)), shader, cubeTexture);
+        gl_draw_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)), shader, cubeTexture);
+
+        // then draw some VK
+        vk_draw_quad(vk_quad_z);
+
+        // then draw some GL again
+        gl_draw_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(+3.0f, 0.0f, +3.0f)), shader, cubeTexture);
+        gl_draw_mesh(planeVAO, 6, glm::mat4(1.0f), shader, floorTexture);
 
         // now copy the VK-GL FBO results to the GLFW window framebuffer
         glBindFramebuffer(GL_READ_FRAMEBUFFER, vkgl_framebuffer);   // vkgl interop FBO
@@ -408,9 +423,19 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
 
+void update_window_title(GLFWwindow* window)
+{
+    const char* gl_version = (const char*)glGetString(GL_VERSION);
+    std::string title = std::string() + "[vkgl-test @ " + gl_version + "] vk_quad_z = " + std::to_string(vk_quad_z) + " ... change via mouse scroll-wheel";
+    glfwSetWindowTitle(window, title.c_str());
+}
+
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    camera.ProcessMouseScroll(static_cast<float>(yoffset));
+    vk_quad_z += yoffset * 0.001f;
+    vk_quad_z = std::clamp(vk_quad_z, 0.0f, 1.0f);
+
+    update_window_title(window);
 }
 
 // utility function for loading a 2D texture from file
@@ -456,7 +481,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 {
 }
 
-void draw_GL_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id)
+void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id)
 {
     shader.use();
     glm::mat4 view = camera.GetViewMatrix();
@@ -470,6 +495,42 @@ void draw_GL_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_mat
     glDrawArrays(GL_TRIANGLES, 0, num_vertices);
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
+}
+
+bool check_gl_capability()
+{
+    const char* gl_version = (const char*)glGetString(GL_VERSION);
+    std::cout << "GL_VERSION: " << gl_version << std::endl;
+
+    const char* gl_renderer = (const char*)glGetString(GL_RENDERER);
+    std::cout << "GL_RENDERER: " << gl_renderer << std::endl;
+
+#define gl_required_ext(ext_name) { (#ext_name + 5), ext_name }
+
+    const std::map<const char*, bool> gl_required_extensions =
+    {
+        gl_required_ext(GLAD_GL_EXT_memory_object),
+#if WIN32
+        gl_required_ext(GLAD_GL_EXT_memory_object_win32),
+#else
+        gl_required_ext(GLAD_GL_EXT_memory_object_fd),
+#endif
+        gl_required_ext(GLAD_GL_EXT_semaphore),
+#if WIN32
+        gl_required_ext(GLAD_GL_EXT_semaphore_win32),
+#else
+        gl_required_ext(GLAD_GL_EXT_semaphore_fd),
+#endif
+    };
+
+    bool all_supported = true;
+    for (auto& [name, supported] : gl_required_extensions)
+    {
+        std::cout << name << ": " << supported << std::endl;
+        all_supported &= supported;
+    }
+
+    return all_supported;
 }
 
 // Print some info about GL default framebuffer (framebuffer owned by the window/swapchain)

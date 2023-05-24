@@ -16,6 +16,9 @@ void glDebugOutput(GLenum source,
     // ignore non-significant error/warning codes
     if(id == 131169 || id == 131185 || id == 131218 || id == 131204) return;
 
+    // ignore performance warnings (mainly because of intel drivers spam)
+    if(type == GL_DEBUG_TYPE_PERFORMANCE) return;
+
     std::cout << "---------------" << std::endl;
     std::cout << "Debug message (" << id << "): " <<  message << std::endl;
 

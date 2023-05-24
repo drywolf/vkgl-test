@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glad/glad.h>
+#include <glm/glm.hpp>
 
 #include <stdint.h>
 #include <iostream>
@@ -30,6 +31,7 @@
 		}                                                           \
 	} while (0)
 
-bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id);
-void vk_render();
+bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_validation, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id);
+void vk_clear_fbo();
+void vk_draw_quad(float quad_z);
 void vk_shutdown();

@@ -46,6 +46,8 @@ struct vk_ctx
 	VkQueue queue;
 	int qfam_idx;
 
+	VkFence fence;
+
 	uint8_t deviceUUID[VK_UUID_SIZE];
 	uint8_t driverUUID[VK_UUID_SIZE];
 };
@@ -99,7 +101,8 @@ struct vk_renderer
 {
 	VkPipeline pipeline;
 	VkPipelineLayout pipeline_layout;
-	VkRenderPass renderpass;
+    VkRenderPass clear_renderpass;
+    VkRenderPass draw_renderpass;
 	VkShaderModule vs;
 	VkShaderModule fs;
 	VkFramebuffer fb;
@@ -119,10 +122,9 @@ struct vk_semaphores
 	VkSemaphore gl_frame_done;
 };
 
-struct vk_dims
+struct vk_push_constants
 {
-	float w;
-	float h;
+	float quad_z;
 };
 
 bool
@@ -215,6 +217,7 @@ vk_draw(struct vk_ctx *ctx,
 	bool has_wait, bool has_signal,
 	struct vk_image_att *attachments,
 	uint32_t n_attachments,
+    struct vk_push_constants* push_constants,
 	float x, float y, float w, float h);
 
 void

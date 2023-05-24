@@ -41,6 +41,9 @@ gl_get_target(const struct vk_image_props *props)
 	if (props->depth > 1)
 		return GL_TEXTURE_3D;
 
+	if (props->num_samples > 1)
+		return GL_TEXTURE_2D_MULTISAMPLE;
+
 	return GL_TEXTURE_2D;
 }
 
@@ -109,6 +112,13 @@ gl_gen_tex_from_mem_obj(const struct vk_image_props *props,
 				     props->w, props->h,
 				     mem_obj, offset);
 		break;
+    case GL_TEXTURE_2D_MULTISAMPLE:
+        assert(props->depth == 1);
+        glTexStorageMem2DMultisampleEXT(target, props->num_samples,
+            tex_storage_format,
+            props->w, props->h,
+            GL_TRUE, mem_obj, offset);
+        break;
 	case GL_TEXTURE_3D:
 		glTexStorageMem3DEXT(target, props->num_levels,
 				     tex_storage_format,
@@ -120,18 +130,20 @@ gl_gen_tex_from_mem_obj(const struct vk_image_props *props,
 		return false;
 	}
 
-	switch (get_channel_type(format, 1)) {
-	case GL_INT:
-	case GL_UNSIGNED_INT:
-		filter = GL_NEAREST;
-		break;
-	default:
-		filter = GL_LINEAR;
-		break;
-	}
+	if (target != GL_TEXTURE_2D_MULTISAMPLE) {
+        switch (get_channel_type(format, 1)) {
+        case GL_INT:
+        case GL_UNSIGNED_INT:
+            filter = GL_NEAREST;
+            break;
+        default:
+            filter = GL_LINEAR;
+            break;
+        }
 
-	glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter);
-	glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter);
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter);
+        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter);
+	}
 
 	return glGetError() == GL_NO_ERROR;
 }

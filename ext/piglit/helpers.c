@@ -44,7 +44,7 @@ load_shader(const char *shader_file,
 	//		  "ext_external_objects",
 	//		  shader_file);
 
-	memcpy(filepath, shader_file, strlen(shader_file) + 1);
+	strcpy(filepath, shader_file);
 
 	// IMPORTANT: read file as binary !!! reading of binary files in ASCII mode will lead to corrupted SPV VK shader modules on Windows !!!
 	char *result =

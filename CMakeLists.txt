@@ -46,6 +46,7 @@ add_custom_command(
 # amd-vkgl EXECUTABLE
 add_executable(amd-vkgl
     amd-vkgl.cpp
+    vkgl_options.h
     ext/piglit/helpers.c
     ext/piglit/helpers.h
     ext/piglit/interop.c

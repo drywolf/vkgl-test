@@ -278,7 +278,13 @@ create_renderpass(struct vk_ctx *ctx,
 	memset(att_dsc, 0, num_attachments * sizeof att_dsc[0]);
 
 	att_dsc[0].samples = get_num_samples(color_img_props->num_samples);
-	att_dsc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    /* We might want to reuse a color buffer */
+	if (color_img_props->in_layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+        att_dsc[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    }
+	else {
+        att_dsc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	}
 	att_dsc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	att_dsc[0].initialLayout = color_img_props->in_layout;
 	att_dsc[0].finalLayout = color_img_props->end_layout;
@@ -515,7 +521,7 @@ create_framebuffer(struct vk_ctx *ctx,
 
 	memset(&fb_info, 0, sizeof fb_info);
 	fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	fb_info.renderPass = renderer->renderpass;
+	fb_info.renderPass = renderer->draw_renderpass;
 	fb_info.width = color_att->props.w;
 	fb_info.height = color_att->props.h;
 	fb_info.layers = color_att->props.num_layers ? color_att->props.num_layers : 1;
@@ -734,8 +740,8 @@ create_pipeline(struct vk_ctx *ctx,
 
 	/* VkPushConstantRange */
 	memset(pc_range, 0, sizeof pc_range[0]);
-	pc_range[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	pc_range[0].size = sizeof (struct vk_dims); /* w, h */
+	pc_range[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	pc_range[0].size = sizeof (struct vk_push_constants); /* w, h */
 
 	/* VkPipelineLayoutCreateInfo */
 	memset(&layout_info, 0, sizeof layout_info);
@@ -755,7 +761,7 @@ create_pipeline(struct vk_ctx *ctx,
 	memset(&pipeline_info, 0, sizeof pipeline_info);
 	pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 	pipeline_info.layout = pipeline_layout;
-	pipeline_info.renderPass = renderer->renderpass;
+	pipeline_info.renderPass = renderer->draw_renderpass;
 	pipeline_info.pVertexInputState = &vert_input_info;
 	pipeline_info.pInputAssemblyState = &asm_info;
 	pipeline_info.pViewportState = &viewport_info;
@@ -996,6 +1002,12 @@ are_props_supported(struct vk_ctx *ctx, struct vk_image_props *props)
 		}
 	}
 
+    if (props->num_samples > 1) {
+        // combining MSAA & USAGE_STORAGE_BIT are not allowed by the Vulkan spec
+		// VUID-VkImageCreateInfo-usage-00968(ERROR / SPEC): msgNum: -1668625996 - Validation Error: [ VUID-VkImageCreateInfo-usage-00968 ] Object 0: handle = 0x1fb4bf26fe0, type = VK_OBJECT_TYPE_DEVICE; | MessageID = 0x9c8ac9b4 | vkCreateImage(): usage contains VK_IMAGE_USAGE_STORAGE_BIT and the multisampled storage images feature is not enabled, image samples must be VK_SAMPLE_COUNT_1_BIT The Vulkan spec states: If the shaderStorageImageMultisample feature is not enabled, and usage contains VK_IMAGE_USAGE_STORAGE_BIT, samples must be VK_SAMPLE_COUNT_1_BIT (https://vulkan.lunarg.com/doc/view/1.3.239.0/windows/1.3-extensions/vkspec.html#VUID-VkImageCreateInfo-usage-00968)
+        flags = flags & ~VK_IMAGE_USAGE_STORAGE_BIT;
+    }
+
 	/* usage can't be null */
 	if (flags) {
 		img_fmt_info.usage = flags;
@@ -1076,6 +1088,14 @@ vk_init_ctx_for_rendering(struct vk_ctx *ctx, bool enable_validation)
 		goto fail;
 	}
 
+    VkFenceCreateInfo fence_info;
+    memset(&fence_info, 0, sizeof fence_info);
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (vkCreateFence(ctx->dev, &fence_info, 0, &ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create vulkan fence.\n");
+        goto fail;
+    }
+
 	return true;
 
 fail:
@@ -1086,6 +1106,11 @@ fail:
 void
 vk_cleanup_ctx(struct vk_ctx *ctx)
 {
+    if (ctx->fence != VK_NULL_HANDLE) {
+        vkDestroyFence(ctx->dev, ctx->fence, 0);
+        ctx->fence = VK_NULL_HANDLE;
+    }
+
 	if (ctx->cmd_buf != VK_NULL_HANDLE) {
 		vkResetCommandBuffer(ctx->cmd_buf, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 		vkFreeCommandBuffers(ctx->dev, ctx->cmd_pool, 1, &ctx->cmd_buf);
@@ -1266,9 +1291,24 @@ vk_create_renderer(struct vk_ctx *ctx,
 	if (vert_info)
 		renderer->vertex_info = *vert_info;
 
-	renderer->renderpass = create_renderpass(ctx, &color_att->props, depth_att ? &depth_att->props : NULL);
-	if (renderer->renderpass == VK_NULL_HANDLE)
-		goto fail;
+    {
+        struct vk_image_props color_clear = color_att->props;
+        struct vk_image_props depth_clear;
+        if (depth_att) depth_clear = depth_att->props;
+
+        color_clear.in_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth_clear.in_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        renderer->clear_renderpass = create_renderpass(ctx, &color_clear, depth_att ? &depth_clear : NULL);
+        if (renderer->clear_renderpass == VK_NULL_HANDLE)
+            goto fail;
+    }
+
+	{
+        renderer->draw_renderpass = create_renderpass(ctx, &color_att->props, depth_att ? &depth_att->props : NULL);
+        if (renderer->draw_renderpass == VK_NULL_HANDLE)
+            goto fail;
+	}
 
 	create_framebuffer(ctx, color_att, depth_att, renderer);
 	if (renderer->fb == VK_NULL_HANDLE)
@@ -1300,9 +1340,14 @@ void
 vk_destroy_renderer(struct vk_ctx *ctx,
 		    struct vk_renderer *renderer)
 {
-	if (renderer->renderpass != VK_NULL_HANDLE) {
-		vkDestroyRenderPass(ctx->dev, renderer->renderpass, 0);
-		renderer->renderpass = VK_NULL_HANDLE;
+    if (renderer->clear_renderpass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(ctx->dev, renderer->clear_renderpass, 0);
+        renderer->clear_renderpass = VK_NULL_HANDLE;
+    }
+
+	if (renderer->draw_renderpass != VK_NULL_HANDLE) {
+		vkDestroyRenderPass(ctx->dev, renderer->draw_renderpass, 0);
+		renderer->draw_renderpass = VK_NULL_HANDLE;
 	}
 
 	if (renderer->vs != VK_NULL_HANDLE) {
@@ -1435,6 +1480,7 @@ vk_draw(struct vk_ctx *ctx,
 	bool has_wait, bool has_signal,
 	struct vk_image_att *attachments,
 	uint32_t n_attachments,
+	struct vk_push_constants *push_constants,
 	float x, float y,
 	float w, float h)
 {
@@ -1445,7 +1491,6 @@ vk_draw(struct vk_ctx *ctx,
 	VkSubmitInfo submit_info;
 	VkDeviceSize offsets[] = {0};
 	VkPipelineStageFlags stage_flags;
-	struct vk_dims img_size;
 
 	assert(vk_fb_color_count == 4);
 	if (has_wait)
@@ -1456,7 +1501,7 @@ vk_draw(struct vk_ctx *ctx,
 	/* VkCommandBufferBeginInfo */
 	memset(&cmd_begin_info, 0, sizeof cmd_begin_info);
 	cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
 	/* VkRect2D render area */
 	memset(&rp_area, 0, sizeof rp_area);
@@ -1479,7 +1524,7 @@ vk_draw(struct vk_ctx *ctx,
 	/* VkRenderPassBeginInfo */
 	memset(&rp_begin_info, 0, sizeof rp_begin_info);
 	rp_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	rp_begin_info.renderPass = renderer->renderpass;
+	rp_begin_info.renderPass = renderer->draw_renderpass;
 	rp_begin_info.framebuffer = renderer->fb;
 	rp_begin_info.renderArea = rp_area;
 	rp_begin_info.clearValueCount = 2;
@@ -1519,13 +1564,11 @@ vk_draw(struct vk_ctx *ctx,
 	vkCmdSetViewport(ctx->cmd_buf, 0, 1, &viewport);
 	vkCmdSetScissor(ctx->cmd_buf, 0, 1, &scissor);
 
-	img_size.w = (float)w;
-	img_size.h = (float)h;
 	vkCmdPushConstants(ctx->cmd_buf,
 			   renderer->pipeline_layout,
-			   VK_SHADER_STAGE_FRAGMENT_BIT,
-			   0, sizeof (struct vk_dims),
-			   &img_size);
+			   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			   0, sizeof (struct vk_push_constants),
+			   push_constants);
 
 	if (vbo) {
 		vkCmdBindVertexBuffers(ctx->cmd_buf, 0, 1, &vbo->buf, offsets);
@@ -1577,9 +1620,17 @@ vk_draw(struct vk_ctx *ctx,
 	}
 	vkEndCommandBuffer(ctx->cmd_buf);
 
-	if (vkQueueSubmit(ctx->queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-		fprintf(stderr, "Failed to submit queue.\n");
-	}
+    if (vkQueueSubmit(ctx->queue, 1, &submit_info, ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to submit queue.\n");
+    }
+
+    if (vkWaitForFences(ctx->dev, 1, &ctx->fence, true, UINT64_MAX) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to wait for fences.\n");
+    }
+
+    if (vkResetFences(ctx->dev, 1, &ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to reset fences.\n");
+    }
 
 	/* FIXME */
 	if (!semaphores && !has_wait && !has_signal)
@@ -1617,7 +1668,7 @@ vk_clear_color(struct vk_ctx *ctx,
 	/* VkCommandBufferBeginInfo */
 	memset(&cmd_begin_info, 0, sizeof cmd_begin_info);
 	cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
 	/* VkRect2D render area */
 	memset(&rp_area, 0, sizeof rp_area);
@@ -1640,7 +1691,7 @@ vk_clear_color(struct vk_ctx *ctx,
 	/* VkRenderPassBeginInfo */
 	memset(&rp_begin_info, 0, sizeof rp_begin_info);
 	rp_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	rp_begin_info.renderPass = renderer->renderpass;
+	rp_begin_info.renderPass = renderer->clear_renderpass;
 	rp_begin_info.framebuffer = renderer->fb;
 	rp_begin_info.renderArea = rp_area;
 	rp_begin_info.clearValueCount = 2;
@@ -1713,8 +1764,8 @@ vk_clear_color(struct vk_ctx *ctx,
 		/* Insert barrier to mark ownership transfer. */
 		barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 
-		bool is_depth =
-			get_aspect_from_depth_format(att->props.format) != (uintptr_t)VK_NULL_HANDLE;
+		VkImageAspectFlags depth_aspects = get_aspect_from_depth_format(att->props.format);
+		bool is_depth = depth_aspects != (uintptr_t)VK_NULL_HANDLE;
 
 		barrier->oldLayout = is_depth ?
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL :
@@ -1726,7 +1777,7 @@ vk_clear_color(struct vk_ctx *ctx,
 		barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
 		barrier->image = att->obj.img;
 		barrier->subresourceRange.aspectMask = is_depth ?
-			VK_IMAGE_ASPECT_DEPTH_BIT :
+			depth_aspects :
 			VK_IMAGE_ASPECT_COLOR_BIT;
 		barrier->subresourceRange.baseMipLevel = 0;
 		barrier->subresourceRange.levelCount = 1;
@@ -1745,9 +1796,17 @@ vk_clear_color(struct vk_ctx *ctx,
 
 	vkEndCommandBuffer(ctx->cmd_buf);
 
-	if (vkQueueSubmit(ctx->queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-		fprintf(stderr, "Failed to submit queue.\n");
-	}
+    if (vkQueueSubmit(ctx->queue, 1, &submit_info, ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to submit queue.\n");
+    }
+
+    if (vkWaitForFences(ctx->dev, 1, &ctx->fence, true, UINT64_MAX) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to wait for fences.\n");
+    }
+
+    if (vkResetFences(ctx->dev, 1, &ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to reset fences.\n");
+    }
 
 	if (!semaphores && !has_wait && !has_signal)
 		vkQueueWaitIdle(ctx->queue);
@@ -1766,7 +1825,7 @@ vk_copy_image_to_buffer(struct vk_ctx *ctx,
 	/* VkCommandBufferBeginInfo */
 	memset(&cmd_begin_info, 0, sizeof cmd_begin_info);
 	cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
 	memset(&submit_info, 0, sizeof submit_info);
 	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1829,9 +1888,18 @@ vk_copy_image_to_buffer(struct vk_ctx *ctx,
 	}
 	vkEndCommandBuffer(ctx->cmd_buf);
 
-	if (vkQueueSubmit(ctx->queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-		fprintf(stderr, "Failed to submit queue.\n");
-	}
+    if (vkQueueSubmit(ctx->queue, 1, &submit_info, ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to submit queue.\n");
+    }
+
+    if (vkWaitForFences(ctx->dev, 1, &ctx->fence, true, UINT64_MAX) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to wait for fences.\n");
+    }
+
+    if (vkResetFences(ctx->dev, 1, &ctx->fence) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to reset fences.\n");
+    }
+
 	vkQueueWaitIdle(ctx->queue);
 }
 

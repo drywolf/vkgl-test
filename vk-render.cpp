@@ -23,28 +23,39 @@ uint32_t num_layers = 1;
 
 VkImageTiling color_tiling = VK_IMAGE_TILING_OPTIMAL;
 VkImageTiling depth_tiling = VK_IMAGE_TILING_OPTIMAL;
-VkImageLayout color_in_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+VkImageLayout color_in_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 VkImageLayout color_end_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-VkImageLayout depth_in_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+VkImageLayout depth_in_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 VkImageLayout depth_end_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 const struct vkgl_format color_format = { "RGBA8", GL_RGBA8, VK_FORMAT_R8G8B8A8_UNORM };
 const struct vkgl_format depth_format = { "D32S8", GL_DEPTH32F_STENCIL8, VK_FORMAT_D32_SFLOAT_S8_UINT };
 //const struct vkgl_format depth_format = { "D24S8", GL_DEPTH24_STENCIL8, VK_FORMAT_D24_UNORM_S8_UINT };
 
-// INTEROP
+uint32_t w = 0, h = 0;
+
+// INTEROP TEXTURES
 static GLuint gl_color_mem_obj = 0;
 static GLuint gl_color_tex = 0;
 
 static GLuint gl_depth_mem_obj = 0;
 static GLuint gl_depth_tex = 0;
 
-bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id)
+// INTEROP SEMAPHORES
+static struct gl_ext_semaphores gl_sem;
+static struct vk_semaphores vk_sem;
+static bool vk_sem_has_wait = true;
+static bool vk_sem_has_signal = true;
+
+bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_validation, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id)
 {
     *OUT_gl_color_tex_id = 0;
     *OUT_gl_depth_tex_id = 0;
 
-    if (!vk_init_ctx_for_rendering(&vk_core, true)) {
+    w = width;
+    h = height;
+
+    if (!vk_init_ctx_for_rendering(&vk_core, enable_validation)) {
         fprintf(stderr, "Failed to create Vulkan context.\n");
         return false;
     }
@@ -85,6 +96,7 @@ bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_
         fprintf(stderr, "Unsupported color image properties.\n");
         return false;
     }
+
     if (!vk_create_ext_image(&vk_core, &vk_color_att.props, &vk_color_att.obj)) {
         fprintf(stderr, "Failed to create color image.\n");
         return false;
@@ -117,7 +129,7 @@ bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_
         return false;
     }
 
-    /* interoperability */
+    // INTEROP TEXTURES
     // COLOR
     if (!gl_create_mem_obj_from_vk_mem(&vk_core, &vk_color_att.obj.mobj,
         &gl_color_mem_obj)) {
@@ -152,20 +164,105 @@ bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_
         return false;
     }
 
+    // INTEROP SEMAPHORES
+    if (!vk_create_semaphores(&vk_core, &vk_sem)) {
+        fprintf(stderr, "Failed to create semaphores.\n");
+        return false;
+    }
+
+    if (!gl_create_semaphores_from_vk(&vk_core, &vk_sem, &gl_sem)) {
+        fprintf(stderr, "Failed to import semaphores from Vulkan.\n");
+        return false;
+    }
+
+    std::cout << "VK INIT DONE" << std::endl;
+
     *OUT_gl_color_tex_id = gl_color_tex;
     *OUT_gl_depth_tex_id = gl_depth_tex;
 
     return true;
 }
 
-void vk_render()
+void vk_clear_fbo()
 {
+    GLuint in_layouts[] = {
+        gl_get_layout_from_vk(color_in_layout),
+        gl_get_layout_from_vk(depth_in_layout),
+    };
+
+    GLuint interop_textures[] = {
+        gl_color_tex,
+        gl_depth_tex,
+    };
+
+    if (vk_sem_has_wait) {
+        glSignalSemaphoreEXT(gl_sem.gl_frame_ready, 0, 0, 1,
+            interop_textures, in_layouts);
+        glFlush();
+    }
+
+    struct vk_image_att images[] = { vk_color_att, vk_depth_att };
+    static float vk_fb_color[4] = { 0.0, 1.0, 0.0, 1.0 };
+
+    vk_clear_color(&vk_core, 0, &vk_rnd, vk_fb_color, 4, &vk_sem,
+        vk_sem_has_wait, vk_sem_has_signal, images,
+        ARRAY_SIZE(images), 0, 0, w, h);
+
+    GLuint end_layouts[] = {
+        gl_get_layout_from_vk(color_end_layout),
+        gl_get_layout_from_vk(depth_end_layout),
+    };
+
+    if (vk_sem_has_signal) {
+        glWaitSemaphoreEXT(gl_sem.vk_frame_done, 0, 0, 1,
+            interop_textures, end_layouts);
+        glFlush();
+    }
+}
+
+void vk_draw_quad(float quad_z)
+{
+    GLuint in_layouts[] = {
+        gl_get_layout_from_vk(color_in_layout),
+        gl_get_layout_from_vk(depth_in_layout),
+    };
+
+    GLuint interop_textures[] = {
+        gl_color_tex,
+        gl_depth_tex,
+    };
+
+    if (vk_sem_has_wait) {
+        glSignalSemaphoreEXT(gl_sem.gl_frame_ready, 0, 0, 1,
+            interop_textures, in_layouts);
+        glFlush();
+    }
+
+    struct vk_image_att images[] = { vk_color_att, vk_depth_att };
+    static float vk_fb_color[4] = { 0.0, 1.0, 0.0, 1.0 };
+    struct vk_push_constants pc = { quad_z };
+
+    vk_draw(&vk_core, 0, &vk_rnd, vk_fb_color, 4, &vk_sem,
+        vk_sem_has_wait, vk_sem_has_signal, images, ARRAY_SIZE(images), &pc, 0, 0, w, h);
+
+    GLuint end_layouts[] = {
+        gl_get_layout_from_vk(color_end_layout),
+        gl_get_layout_from_vk(depth_end_layout),
+    };
+
+    if (vk_sem_has_signal) {
+        glWaitSemaphoreEXT(gl_sem.vk_frame_done, 0, 0, 1,
+            interop_textures, end_layouts);
+        glFlush();
+    }
 }
 
 void vk_shutdown()
 {
     vk_destroy_ext_image(&vk_core, &vk_color_att.obj);
     vk_destroy_ext_image(&vk_core, &vk_depth_att.obj);
+
+    vk_destroy_semaphores(&vk_core, &vk_sem);
 
     vk_destroy_renderer(&vk_core, &vk_rnd);
 
