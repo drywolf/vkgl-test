@@ -30,6 +30,10 @@
 
 #include "vk.h"
 
+#if __cplusplus
+extern "C" {
+#endif
+
 struct gl_ext_semaphores {
 	GLuint vk_frame_done;
 	GLuint gl_frame_ready;
@@ -41,10 +45,10 @@ enum fragment_type {
 	UINT_FS,
 };
 
-struct ds_format {
+struct vkgl_format {
 	char *name;
-	GLenum gl_ds_fmt;
-	VkFormat vk_ds_fmt;
+	GLenum gl_fmt;
+	VkFormat vk_fmt;
 };
 
 struct format_mapping {
@@ -93,5 +97,9 @@ gl_get_layout_from_vk(const VkImageLayout vk_layout);
 
 bool
 gl_check_vk_compatibility(const struct vk_ctx *ctx);
+
+#if __cplusplus
+} // extern "C"
+#endif
 
 #endif /* INTEROPERABILITY_H */

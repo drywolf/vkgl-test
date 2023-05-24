@@ -82,6 +82,10 @@ gl_gen_tex_from_mem_obj(const struct vk_image_props *props,
 	GLint filter;
 	GLuint target = gl_get_target(props);
 	const struct sized_internalformat *format = get_sized_internalformat(tex_storage_format);
+
+	if (!format)
+		return false;
+
 	GLint tiling = props->tiling == VK_IMAGE_TILING_LINEAR ? GL_LINEAR_TILING_EXT :
 					GL_OPTIMAL_TILING_EXT;
 

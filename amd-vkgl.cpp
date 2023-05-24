@@ -253,8 +253,11 @@ int main(int argc, char* argv[])
     // Call resize_window() manually once, to set up the camera projection matrix & GL viewport dimensions
     resize_window(options.width, options.height);
 
-    if (!vk_init())
+    if (!vk_init(options.width, options.height, options.msaa_sample_count))
+    {
+        vk_shutdown();
         return -1;
+    }
 
     // render loop
     // -----------
@@ -289,6 +292,18 @@ int main(int argc, char* argv[])
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    // de-allocate all resources once they've outlived their purpose:
+    // ------------------------------------------------------------------------
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteVertexArrays(1, &planeVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteBuffers(1, &planeVBO);
+    //glDeleteFramebuffers(1, &framebuffer);
+
+    vk_shutdown();
+
+    glfwTerminate();
 
     auto shutdown_time = get_time_now();
 
