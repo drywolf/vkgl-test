@@ -93,6 +93,7 @@ enable_validation_layers(VkInstanceCreateInfo *info)
 	VkLayerProperties *layers;
 	static const char *layer_names[] = {
 		"VK_LAYER_KHRONOS_validation",
+		//"VK_LAYER_LUNARG_api_dump",
 	};
 
 	vkEnumerateInstanceLayerProperties(&num_layers, 0);
@@ -100,10 +101,10 @@ enable_validation_layers(VkInstanceCreateInfo *info)
 	vkEnumerateInstanceLayerProperties(&num_layers, layers);
 
 	if (num_layers) {
-		printf("Available validation layers:\n");
-		for(i = 0; i < (int)num_layers; i++) {
-			printf(" %s\n", layers[i].layerName);
-		}
+		//printf("Available validation layers:\n");
+		//for(i = 0; i < (int)num_layers; i++) {
+		//	printf(" %s\n", layers[i].layerName);
+		//}
 
 		info->ppEnabledLayerNames = layer_names;
 		info->enabledLayerCount = sizeof layer_names / sizeof *layer_names;
@@ -119,6 +120,12 @@ create_instance(bool enable_layers)
 	VkInstanceCreateInfo inst_info;
 	VkInstance inst;
 
+    //const char* instanceExtensions[] = {
+    //    VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
+    //    VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+    //    VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+    //};
+
 	memset(&app_info, 0, sizeof app_info);
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	app_info.pApplicationName = "vktest";
@@ -127,6 +134,9 @@ create_instance(bool enable_layers)
 	memset(&inst_info, 0, sizeof inst_info);
 	inst_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 	inst_info.pApplicationInfo = &app_info;
+	//inst_info.enabledExtensionCount = ARRAY_SIZE(instanceExtensions);
+	//inst_info.ppEnabledExtensionNames = instanceExtensions;
+	//inst_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
 	if (enable_layers)
 		enable_validation_layers(&inst_info);
@@ -164,10 +174,15 @@ static VkDevice
 create_device(struct vk_ctx *ctx, VkPhysicalDevice pdev)
 {
     const char* deviceExtensions[] = {
+        VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_EXT_NAME,
         VK_KHR_EXTERNAL_SEMAPHORE_EXT_NAME,
-        VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME
+        //VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME
     };
+
+    //const char* deviceLayers[] = {
+    //};
 
 	VkDeviceQueueCreateInfo dev_queue_info;
 	VkDeviceCreateInfo dev_info;
@@ -175,7 +190,7 @@ create_device(struct vk_ctx *ctx, VkPhysicalDevice pdev)
 	uint32_t prop_count;
 	VkQueueFamilyProperties *fam_props;
 	uint32_t i;
-	float qprio = 0;
+	float qprio = 1;
 
 	ctx->qfam_idx = -1;
 	vkGetPhysicalDeviceQueueFamilyProperties(pdev, &prop_count, 0);
@@ -203,6 +218,8 @@ create_device(struct vk_ctx *ctx, VkPhysicalDevice pdev)
 	dev_info.pQueueCreateInfos = &dev_queue_info;
 	dev_info.enabledExtensionCount = ARRAY_SIZE(deviceExtensions);
 	dev_info.ppEnabledExtensionNames = deviceExtensions;
+    //dev_info.enabledLayerCount = ARRAY_SIZE(deviceLayers);
+    //dev_info.ppEnabledLayerNames = deviceLayers;
 
 	if (vkCreateDevice(pdev, &dev_info, 0, &dev) != VK_SUCCESS)
 		return VK_NULL_HANDLE;

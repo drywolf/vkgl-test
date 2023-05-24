@@ -54,6 +54,7 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 void draw_GL_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id);
+void print_gl_default_framebuffer_info();
 
 std::tm get_time_now()
 {
@@ -133,6 +134,22 @@ int main(int argc, char* argv[])
     if (!gl_enable_debug_output())
     {
         logger << "ERROR: Failed to initialize GL DEBUG OUTPUT" << std::endl;
+    }
+
+    print_gl_default_framebuffer_info();
+
+    GLuint gl_color_tex = 0, gl_depth_tex = 0;
+    // initialize vulkan + interop resources
+    if (!vk_init(
+        options.width,
+        options.height,
+        options.msaa_sample_count,
+        &gl_color_tex,
+        &gl_depth_tex
+    ))
+    {
+        vk_shutdown();
+        return -1;
     }
 
     // configure global opengl state
@@ -236,33 +253,44 @@ int main(int argc, char* argv[])
 
     // framebuffer configuration
     // -------------------------
-    //GLuint interop_framebuffer;
-    //glGenFramebuffers(1, &interop_framebuffer);
-    //glBindFramebuffer(GL_FRAMEBUFFER, interop_framebuffer);
+    GLuint vkgl_framebuffer;
+    glGenFramebuffers(1, &vkgl_framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, vkgl_framebuffer);
 
-    //// now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
-    //const auto fbo_state = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    //if (fbo_state != GL_FRAMEBUFFER_COMPLETE)
-    //{
-    //    logger << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
-    //    return 1;
-    //}
+    const auto target = options.msaa_sample_count > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // attach interop COLOR render-texture to GL FBO
+    GL_CHECK(glBindTexture(target, gl_color_tex));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, gl_color_tex, 0));
+    //GL_CHECK(glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    //GL_CHECK(glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glBindTexture(target, 0));
+
+    // attach interop DEPTH render-texture to GL FBO
+    GL_CHECK(glBindTexture(target, gl_depth_tex));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, target, gl_depth_tex, 0));
+    GL_CHECK(glBindTexture(target, 0));
+
+    // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
+    const auto fbo_state = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fbo_state != GL_FRAMEBUFFER_COMPLETE)
+    {
+        logger << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+        return 1;
+    }
 
     // Call resize_window() manually once, to set up the camera projection matrix & GL viewport dimensions
     resize_window(options.width, options.height);
-
-    if (!vk_init(options.width, options.height, options.msaa_sample_count))
-    {
-        vk_shutdown();
-        return -1;
-    }
 
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
     {
+        // clear the window framebuffer RED, just for potential debugging purposes
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClearColor(1.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+
         // per-frame time logic
         // --------------------
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -275,8 +303,8 @@ int main(int argc, char* argv[])
 
         // render
         // ------
-        // bind to framebuffer and draw scene as we normally would to color texture 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // bind vkgl interop framebuffer and draw scene as we normally would
+        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, vkgl_framebuffer));
 
         // make sure we clear the framebuffer's content
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
@@ -286,6 +314,22 @@ int main(int argc, char* argv[])
         draw_GL_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)), shader, cubeTexture);
         draw_GL_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(+3.0f, 0.0f, +3.0f)), shader, cubeTexture);
         draw_GL_mesh(planeVAO, 6, glm::mat4(1.0f), shader, floorTexture);
+
+        // now copy the VK-GL FBO results to the GLFW window framebuffer
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, vkgl_framebuffer);   // vkgl interop FBO
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);                  // window swapchain framebuffer
+
+        // IMPORTANT: resolving MSAA Depth + Stencil buffer attachments can only work if the Vulkan and OpenGL formats for depth & stencil do match EXACTLY !!!
+        // (otherwise you will get an OpenGL error here)
+        // Currently the only generally available Depth-Stencil format for all IHVs [NVidia, AMD, Intel] might be VK_FORMAT_D32_SFLOAT_S8_UINT.
+        // see also: https://github.com/KhronosGroup/Vulkan-Guide/blob/main/chapters/depth.adoc#depth-formats
+        GL_CHECK(glBlitFramebuffer(0, 0, options.width, options.height, 0, 0, options.width, options.height,
+            //GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+            GL_COLOR_BUFFER_BIT,
+            GL_NEAREST
+        ));
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -299,7 +343,7 @@ int main(int argc, char* argv[])
     glDeleteVertexArrays(1, &planeVAO);
     glDeleteBuffers(1, &cubeVBO);
     glDeleteBuffers(1, &planeVBO);
-    //glDeleteFramebuffers(1, &framebuffer);
+    glDeleteFramebuffers(1, &vkgl_framebuffer);
 
     vk_shutdown();
 
@@ -426,4 +470,38 @@ void draw_GL_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_mat
     glDrawArrays(GL_TRIANGLES, 0, num_vertices);
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
+}
+
+// Print some info about GL default framebuffer (framebuffer owned by the window/swapchain)
+void print_gl_default_framebuffer_info()
+{
+    auto& logger = std::cout;
+    logger << "----------------------------------------" << std::endl;
+    logger << "Default GL Framebuffer format:" << std::endl;
+
+    const auto target = GL_FRAMEBUFFER;
+    glBindFramebuffer(target, 0);
+
+    GLint rgba_bits[4] = {};
+    const auto attachment = GL_BACK_LEFT;
+    glGetFramebufferAttachmentParameteriv(target, attachment, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &rgba_bits[0]);
+    glGetFramebufferAttachmentParameteriv(target, attachment, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &rgba_bits[1]);
+    glGetFramebufferAttachmentParameteriv(target, attachment, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &rgba_bits[2]);
+    glGetFramebufferAttachmentParameteriv(target, attachment, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &rgba_bits[3]);
+
+    logger << "Red:     " << rgba_bits[0] << " bits" << "\n";
+    logger << "Green:   " << rgba_bits[1] << " bits" << "\n";
+    logger << "Blue:    " << rgba_bits[2] << " bits" << "\n";
+    logger << "Alpha:   " << rgba_bits[3] << " bits" << "\n";
+
+    GLint depth_bits = 0;
+    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH, GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depth_bits);
+
+    logger << "Depth:   " << depth_bits << " bits" << "\n";
+
+    GLint stencil_bits = 0;
+    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL, GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &stencil_bits);
+
+    logger << "Stencil: " << stencil_bits << " bits" << "\n";
+    logger << "----------------------------------------" << std::endl;
 }

@@ -30,16 +30,20 @@ VkImageLayout depth_end_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMA
 
 const struct vkgl_format color_format = { "RGBA8", GL_RGBA8, VK_FORMAT_R8G8B8A8_UNORM };
 const struct vkgl_format depth_format = { "D32S8", GL_DEPTH32F_STENCIL8, VK_FORMAT_D32_SFLOAT_S8_UINT };
+//const struct vkgl_format depth_format = { "D24S8", GL_DEPTH24_STENCIL8, VK_FORMAT_D24_UNORM_S8_UINT };
 
 // INTEROP
-static GLuint gl_color_mem_obj;
-static GLuint gl_color_tex;
+static GLuint gl_color_mem_obj = 0;
+static GLuint gl_color_tex = 0;
 
-static GLuint gl_depth_mem_obj;
-static GLuint gl_depth_tex;
+static GLuint gl_depth_mem_obj = 0;
+static GLuint gl_depth_tex = 0;
 
-bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples)
+bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id)
 {
+    *OUT_gl_color_tex_id = 0;
+    *OUT_gl_depth_tex_id = 0;
+
     if (!vk_init_ctx_for_rendering(&vk_core, true)) {
         fprintf(stderr, "Failed to create Vulkan context.\n");
         return false;
@@ -142,9 +146,21 @@ bool vk_init(uint32_t w, uint32_t h, uint32_t num_samples)
         return false;
     }
 
+    if (!gl_color_tex || !gl_depth_tex)
+    {
+        fprintf(stderr, "Uninitialized GL color or depth texture-id\n");
+        return false;
+    }
+
+    *OUT_gl_color_tex_id = gl_color_tex;
+    *OUT_gl_depth_tex_id = gl_depth_tex;
+
     return true;
 }
 
+void vk_render()
+{
+}
 
 void vk_shutdown()
 {
