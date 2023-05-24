@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 
-project(amd-vkgl)
+project(vkgl-test)
 
 # GLOBAL PROPERTIES
 set(CMAKE_CXX_STANDARD 17)
@@ -43,9 +43,9 @@ add_custom_command(
     OUTPUT ${VK_SHADER_FRAG_OUT}
 )
 
-# amd-vkgl EXECUTABLE
-add_executable(amd-vkgl
-    amd-vkgl.cpp
+# vkgl-test EXECUTABLE
+add_executable(vkgl-test
+    vkgl-test.cpp
     vkgl_options.h
     ext/piglit/helpers.c
     ext/piglit/helpers.h
@@ -69,11 +69,11 @@ add_executable(amd-vkgl
     ${VK_SHADER_FRAG_OUT}
 )
 
-set_target_properties(amd-vkgl PROPERTIES
-    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:amd-vkgl>"
+set_target_properties(vkgl-test PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:vkgl-test>"
 )
 
-target_link_libraries(amd-vkgl
+target_link_libraries(vkgl-test
 PUBLIC
     learnopengl-framework
     glad::glad
@@ -82,40 +82,40 @@ PUBLIC
     Vulkan::Vulkan
 )
 
-target_include_directories(amd-vkgl
+target_include_directories(vkgl-test
 PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/ext/piglit"
 )
 
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT amd-vkgl)
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT vkgl-test)
 
 # https://github.com/KhronosGroup/Vulkan-Samples/blob/f6dd68c1fa053bff3f4a850062968070d1388b08/third_party/CMakeLists.txt#L53-L86
 if(ANDROID)
-    target_compile_definitions(amd-vkgl PUBLIC VK_USE_PLATFORM_ANDROID_KHR)
+    target_compile_definitions(vkgl-test PUBLIC VK_USE_PLATFORM_ANDROID_KHR)
 elseif(WIN32)
-    target_compile_definitions(amd-vkgl PUBLIC VK_USE_PLATFORM_WIN32_KHR)
+    target_compile_definitions(vkgl-test PUBLIC VK_USE_PLATFORM_WIN32_KHR)
 elseif(APPLE)
-    target_compile_definitions(amd-vkgl PUBLIC VK_USE_PLATFORM_METAL_EXT)
+    target_compile_definitions(vkgl-test PUBLIC VK_USE_PLATFORM_METAL_EXT)
 elseif(UNIX)
     # TODO: this could be a more sophisticated selection of the used xlib
-    target_compile_definitions(amd-vkgl PUBLIC VK_USE_PLATFORM_XCB_KHR)
-    target_compile_definitions(amd-vkgl PUBLIC VK_USE_PLATFORM_XLIB_KHR)
+    target_compile_definitions(vkgl-test PUBLIC VK_USE_PLATFORM_XCB_KHR)
+    target_compile_definitions(vkgl-test PUBLIC VK_USE_PLATFORM_XLIB_KHR)
 endif()
 
 # COPY-RESOURCES
 add_custom_target(copy-resources
-                  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:amd-vkgl>/"
+                  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:vkgl-test>/"
                   # OpenGL shaders
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/5.1.framebuffers.vs" "$<TARGET_FILE_DIR:amd-vkgl>/"
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/5.1.framebuffers.fs" "$<TARGET_FILE_DIR:amd-vkgl>/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/5.1.framebuffers.vs" "$<TARGET_FILE_DIR:vkgl-test>/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/5.1.framebuffers.fs" "$<TARGET_FILE_DIR:vkgl-test>/"
                   # Vulkan shaders
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VK_SHADER_VERT_OUT}" "$<TARGET_FILE_DIR:amd-vkgl>/"
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VK_SHADER_FRAG_OUT}" "$<TARGET_FILE_DIR:amd-vkgl>/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VK_SHADER_VERT_OUT}" "$<TARGET_FILE_DIR:vkgl-test>/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VK_SHADER_FRAG_OUT}" "$<TARGET_FILE_DIR:vkgl-test>/"
                   # OpenGL Textures
-                  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:amd-vkgl>/resources/textures/"
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/textures/container.jpg" "$<TARGET_FILE_DIR:amd-vkgl>/resources/textures/"
-                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/textures/metal.png" "$<TARGET_FILE_DIR:amd-vkgl>/resources/textures/"
+                  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:vkgl-test>/resources/textures/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/textures/container.jpg" "$<TARGET_FILE_DIR:vkgl-test>/resources/textures/"
+                  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/textures/metal.png" "$<TARGET_FILE_DIR:vkgl-test>/resources/textures/"
                   COMMENT "Copying shaders & resources..."
                   SOURCES
                     "${CMAKE_CURRENT_SOURCE_DIR}/5.1.framebuffers.vs"
@@ -124,6 +124,6 @@ add_custom_target(copy-resources
                     "${VK_SHADER_FRAG_OUT}"
 )
 
-add_dependencies(amd-vkgl copy-resources)
+add_dependencies(vkgl-test copy-resources)
 
 set_target_properties(copy-resources PROPERTIES FOLDER res)

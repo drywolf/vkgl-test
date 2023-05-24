@@ -1,3 +1,7 @@
+#if WIN32
+#define NOMINMAX
+#endif
+
 #include "vk-render.h"
 
 #include <ext/piglit/vk.h>
@@ -47,7 +51,27 @@ static struct vk_semaphores vk_sem;
 static bool vk_sem_has_wait = true;
 static bool vk_sem_has_signal = true;
 
-bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_validation, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id)
+VkSampleCountFlags vk_max_supported_msaa_samples(VkPhysicalDevice pdev)
+{
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+    vkGetPhysicalDeviceProperties(pdev, &physicalDeviceProperties);
+
+    VkSampleCountFlags counts =
+        physicalDeviceProperties.limits.framebufferColorSampleCounts
+        & physicalDeviceProperties.limits.framebufferDepthSampleCounts
+        & physicalDeviceProperties.limits.framebufferStencilSampleCounts;
+
+    if (counts & VK_SAMPLE_COUNT_64_BIT) { return VK_SAMPLE_COUNT_64_BIT; }
+    if (counts & VK_SAMPLE_COUNT_32_BIT) { return VK_SAMPLE_COUNT_32_BIT; }
+    if (counts & VK_SAMPLE_COUNT_16_BIT) { return VK_SAMPLE_COUNT_16_BIT; }
+    if (counts & VK_SAMPLE_COUNT_8_BIT) { return VK_SAMPLE_COUNT_8_BIT; }
+    if (counts & VK_SAMPLE_COUNT_4_BIT) { return VK_SAMPLE_COUNT_4_BIT; }
+    if (counts & VK_SAMPLE_COUNT_2_BIT) { return VK_SAMPLE_COUNT_2_BIT; }
+
+    return VK_SAMPLE_COUNT_1_BIT;
+}
+
+bool vk_init(uint32_t width, uint32_t height, int& msaa_samples, bool enable_validation, GLuint* OUT_gl_color_tex_id, GLuint* OUT_gl_depth_tex_id)
 {
     *OUT_gl_color_tex_id = 0;
     *OUT_gl_depth_tex_id = 0;
@@ -58,6 +82,23 @@ bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_
     if (!vk_init_ctx_for_rendering(&vk_core, enable_validation)) {
         fprintf(stderr, "Failed to create Vulkan context.\n");
         return false;
+    }
+
+    std::cout << "requested MSAA sample-count: " << msaa_samples << std::endl;
+
+    VkSampleCountFlags vk_max_msaa_samples = vk_max_supported_msaa_samples(vk_core.pdev);
+    std::cout << "VK max-msaa-samples: " << vk_max_msaa_samples << std::endl;
+
+    GLint gl_max_msaa_samples = 0;
+    glGetIntegerv(GL_MAX_SAMPLES, &gl_max_msaa_samples);
+    std::cout << "GL max-msaa-samples: " << gl_max_msaa_samples << std::endl;
+
+    const int requested_msaa_samples = msaa_samples;
+    msaa_samples = std::min(std::min(msaa_samples, (int)vk_max_msaa_samples), gl_max_msaa_samples);
+
+    if (msaa_samples != requested_msaa_samples)
+    {
+        std::cout << "WARNING: MSAA sample-count has been reduced to " << msaa_samples << " samples (because of GPU limits)" << std::endl;
     }
 
     if (!vk_check_gl_compatibility(&vk_core)) {
@@ -84,7 +125,7 @@ bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_
 
     if (!vk_fill_ext_image_props(&vk_core,
         w, h, d,
-        num_samples,
+        msaa_samples,
         num_levels,
         num_layers,
         color_format.vk_fmt,
@@ -104,7 +145,7 @@ bool vk_init(uint32_t width, uint32_t height, uint32_t num_samples, bool enable_
 
     if (!vk_fill_ext_image_props(&vk_core,
         w, h, d,
-        num_samples,
+        msaa_samples,
         num_levels,
         num_layers,
         depth_format.vk_fmt,

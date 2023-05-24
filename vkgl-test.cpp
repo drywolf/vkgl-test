@@ -40,7 +40,7 @@ float vk_quad_z = 0.95f;
 
 // camera
 //Camera camera(glm::vec3(0, +1.0f, +10.0f), glm::vec3(0, 1, 0)); // simple straight view
-Camera camera(glm::vec3(5.54236, 1.44911, 7.70167), glm::vec3(0, 1, 0), -127.6, -9.3); // tilted side view
+Camera camera(glm::vec3(4.74534, 0.958979, 4.76834), glm::vec3(0, 1, 0), -135.7, -15.1);
 
 float lastX = 0;
 float lastY = 0;
@@ -67,9 +67,15 @@ int main(int argc, char* argv[])
 {
     VkGlAppOptions options;
 
+    // IMPORTANT: MSAA sample-count must be a power-of-two number !!!
+    int msaa_sample_count =
+        options.enable_msaa
+        ? 4
+        : 1;
+
     if (
-        options.msaa_sample_count < 1
-        || (options.msaa_sample_count & (options.msaa_sample_count - 1)) != 0
+        msaa_sample_count < 1
+        || (msaa_sample_count & (msaa_sample_count - 1)) != 0
         )
     {
         std::cout << "FATAL ERROR: VkGlApp::initialize() msaa_sample_count must be a power-of-two number or '1' !!!" << std::endl;
@@ -147,7 +153,7 @@ int main(int argc, char* argv[])
     if (!vk_init(
         options.width,
         options.height,
-        options.msaa_sample_count,
+        msaa_sample_count, // NOTE: this value will be modified, if the GPU capabilities do not support the desired sample-count
         options.ENABLE_VULKAN_VALIDATION_LAYER,
         &gl_color_tex,
         &gl_depth_tex
@@ -262,7 +268,7 @@ int main(int argc, char* argv[])
     glGenFramebuffers(1, &vkgl_framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, vkgl_framebuffer);
 
-    const auto target = options.msaa_sample_count > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+    const auto target = msaa_sample_count > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 
     // attach interop COLOR render-texture to GL FBO
     GL_CHECK(glBindTexture(target, gl_color_tex));
@@ -479,6 +485,11 @@ unsigned int loadTexture(char const* path)
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+    // can be used to capture the current camera position (make it a new starting position)
+    if (key == GLFW_KEY_P && action == GLFW_PRESS)
+    {
+        std::cout << "Camera camera(glm::vec3(" << camera.Position.x << "," << camera.Position.y << "," << camera.Position.z << "), glm::vec3(0, 1, 0), " << camera.Yaw << ", " << camera.Pitch << ");" << std::endl;
+    }
 }
 
 void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id)
