@@ -360,7 +360,7 @@ int main(int argc, char* argv[])
                 view *
                 glm::translate(glm::mat4(1), vk_cube_position)
                 ;
-            vk_draw_quad(vk_mvp_mat);
+            vk_draw_cube(vk_mvp_mat);
         }
 
         // then draw some GL again

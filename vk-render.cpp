@@ -261,7 +261,7 @@ void vk_clear_fbo()
     }
 }
 
-void vk_draw_quad(const glm::mat4& mvp_matrix)
+void vk_draw_cube(const glm::mat4& mvp_matrix)
 {
     GLuint in_layouts[] = {
         gl_get_layout_from_vk(color_in_layout),
