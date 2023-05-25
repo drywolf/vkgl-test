@@ -30,6 +30,14 @@ Used extensions:
 
 It looks like the AMD driver crashes/freezes in the `glWaitSemaphoreEXT()` or `glSignalSemaphoreEXT()` calls in `vk-render.cpp`
 
+# Running the app
+
+*with MSAA enabled:*  
+`vkgl-test` OR `vkgl-test -msaa`
+
+*with MSAA disabled:*  
+`vkgl-test -no-msaa`
+
 # Screenshots
 
 ### With MSAA
