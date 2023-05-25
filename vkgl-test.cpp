@@ -473,9 +473,12 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 
 void update_window_title(GLFWwindow* window)
 {
+    const char* vendor = (const char*)glGetString(GL_VENDOR);
     std::string title = std::string()
         + "[vkgl-test] ... hold mouse-button to move Vulkan cube, press 'R' or 'X' to reset"
-        + " (MSAA-Samples: " + std::to_string(msaa_sample_count) + ")";
+        + " (MSAA-Samples: " + std::to_string(msaa_sample_count) + ")"
+        + " [" + vendor + "]"
+        ;
     glfwSetWindowTitle(window, title.c_str());
 }
 
