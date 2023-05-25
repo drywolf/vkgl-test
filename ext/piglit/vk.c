@@ -634,7 +634,7 @@ create_pipeline(struct vk_ctx *ctx,
 	memset(&asm_info, 0, sizeof asm_info);
 	asm_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	asm_info.topology = renderer->vertex_info.topology ?
-			    renderer->vertex_info.topology : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+			    renderer->vertex_info.topology : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	asm_info.primitiveRestartEnable = false;
 
 	/* VkViewport */
@@ -1577,7 +1577,7 @@ vk_draw(struct vk_ctx *ctx,
 	}
 	vkCmdBindPipeline(ctx->cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline);
 
-	int num_vertices = vbo ? renderer->vertex_info.num_verts : 4;
+	int num_vertices = vbo ? renderer->vertex_info.num_verts : 36;
 	vkCmdDraw(ctx->cmd_buf, num_vertices, 1, 0, 0);
 
 	vkCmdEndRenderPass(ctx->cmd_buf);

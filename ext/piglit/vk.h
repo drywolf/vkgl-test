@@ -124,7 +124,7 @@ struct vk_semaphores
 
 struct vk_push_constants
 {
-	float quad_z;
+    float mvp_matrix[4][4];
 };
 
 bool

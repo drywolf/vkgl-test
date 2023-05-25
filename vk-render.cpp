@@ -261,7 +261,7 @@ void vk_clear_fbo()
     }
 }
 
-void vk_draw_quad(float quad_z)
+void vk_draw_quad(const glm::mat4& mvp_matrix)
 {
     GLuint in_layouts[] = {
         gl_get_layout_from_vk(color_in_layout),
@@ -281,7 +281,9 @@ void vk_draw_quad(float quad_z)
 
     struct vk_image_att images[] = { vk_color_att, vk_depth_att };
     static float vk_fb_color[4] = { 0.0, 1.0, 0.0, 1.0 };
-    struct vk_push_constants pc = { quad_z };
+
+    struct vk_push_constants pc;
+    memcpy(&pc.mvp_matrix, &mvp_matrix, sizeof(glm::mat4));
 
     vk_draw(&vk_core, 0, &vk_rnd, vk_fb_color, 4, &vk_sem,
         vk_sem_has_wait, vk_sem_has_signal, images, ARRAY_SIZE(images), &pc, 0, 0, w, h);

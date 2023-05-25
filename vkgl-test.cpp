@@ -35,8 +35,16 @@ void processInput(GLFWwindow* window);
 unsigned int loadTexture(const char* path);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
-// z-buffer position of the drawn Vulkan Quad (can be changed interactively via mouse-scroll)
-float vk_quad_z = 0.95f;
+const auto VK_CUBE_START_POS = glm::vec3(1.5, 0, 1.5);
+// position of the drawn Vulkan Cube (can be changed interactively by holding down mouse-button-1 and moving the mouse)
+glm::vec3 vk_cube_position = VK_CUBE_START_POS;
+
+const glm::mat4 vk_ndc_to_gl_ndc = {
+    { 1, 0, 0, 0 },
+    { 0, 1, 0, 0 },
+    { 0, 0, 0.5, 0 },
+    { 0, 0, 0.5, 1 },
+};
 
 // camera
 //Camera camera(glm::vec3(0, +1.0f, +10.0f), glm::vec3(0, 1, 0)); // simple straight view
@@ -52,7 +60,7 @@ glm::mat4 projection;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id);
+void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& mvp_matrix, const Shader& shader, GLuint texture_id);
 void print_gl_default_framebuffer_info();
 bool check_gl_capability();
 
@@ -344,7 +352,16 @@ int main(int argc, char* argv[])
         gl_draw_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)), shader, cubeTexture);
 
         // then draw some VK
-        vk_draw_quad(vk_quad_z);
+        {
+            glm::mat4 view = camera.GetViewMatrix();
+            const auto vk_mvp_mat =
+                vk_ndc_to_gl_ndc *
+                projection *
+                view *
+                glm::translate(glm::mat4(1), vk_cube_position)
+                ;
+            vk_draw_quad(vk_mvp_mat);
+        }
 
         // then draw some GL again
         gl_draw_mesh(cubeVAO, 36, glm::translate(glm::mat4(1.0f), glm::vec3(+3.0f, 0.0f, +3.0f)), shader, cubeTexture);
@@ -440,23 +457,30 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
     lastX = xpos;
     lastY = ypos;
 
-    camera.ProcessMouseMovement(xoffset, yoffset);
+    int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+    const bool vk_cube_move_enabled = state == GLFW_PRESS;
+
+    if (vk_cube_move_enabled)
+    {
+        const float move_speed = 0.002f;
+        vk_cube_position += glm::vec3(xoffset, 0, -yoffset) * move_speed;
+    }
+    else
+    {
+        camera.ProcessMouseMovement(xoffset, yoffset);
+    }
 }
 
 void update_window_title(GLFWwindow* window)
 {
-    const char* gl_version = (const char*)glGetString(GL_VERSION);
     std::string title = std::string()
-        + "[vkgl-test @ " + gl_version + "] vk_quad_z = " + std::to_string(vk_quad_z) + " ... change via mouse scroll-wheel"
+        + "[vkgl-test] ... hold mouse-button to move Vulkan cube, press 'R' or 'X' to reset"
         + " (MSAA-Samples: " + std::to_string(msaa_sample_count) + ")";
     glfwSetWindowTitle(window, title.c_str());
 }
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    vk_quad_z += yoffset * 0.001f;
-    vk_quad_z = std::clamp(vk_quad_z, 0.0f, 1.0f);
-
     update_window_title(window);
 }
 
@@ -506,15 +530,25 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     {
         std::cout << "Camera camera(glm::vec3(" << camera.Position.x << "," << camera.Position.y << "," << camera.Position.z << "), glm::vec3(0, 1, 0), " << camera.Yaw << ", " << camera.Pitch << ");" << std::endl;
     }
+
+    if (key == GLFW_KEY_R && action == GLFW_PRESS)
+    {
+        vk_cube_position = VK_CUBE_START_POS;
+    }
+
+    if (key == GLFW_KEY_X && action == GLFW_PRESS)
+    {
+        vk_cube_position = glm::vec3(0);
+    }
 }
 
-void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& model_matrix, const Shader& shader, GLuint texture_id)
+void gl_draw_mesh(GLuint vao_id, GLuint num_vertices, const glm::mat4& mvp_matrix, const Shader& shader, GLuint texture_id)
 {
     shader.use();
     glm::mat4 view = camera.GetViewMatrix();
     shader.setMat4("view", view);
     shader.setMat4("projection", projection);
-    shader.setMat4("model", model_matrix);
+    shader.setMat4("model", mvp_matrix);
 
     glBindVertexArray(vao_id);
     glActiveTexture(GL_TEXTURE0);
