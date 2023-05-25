@@ -428,6 +428,8 @@ get_pipeline_stage_flags(const VkImageLayout layout)
 		return VK_PIPELINE_STAGE_TRANSFER_BIT;
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
 		return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // TODO: this could be some earlier stage ?!
 	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 		return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 		       VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
@@ -1722,18 +1724,40 @@ vk_clear_color(struct vk_ctx *ctx,
 	img_range.layerCount = 1;
 
 	vkBeginCommandBuffer(ctx->cmd_buf, &cmd_begin_info);
+
 	vk_transition_image_layout(&attachments[0],
 				   ctx->cmd_buf,
 				   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				   VK_IMAGE_LAYOUT_GENERAL,
 				   VK_QUEUE_FAMILY_EXTERNAL,
-				   ctx->qfam_idx);
+				   ctx->qfam_idx,
+				   VK_IMAGE_ASPECT_COLOR_BIT);
+
+	VkImageAspectFlags depth_aspects = get_aspect_from_depth_format(attachments[1].props.format);
+
+    vk_transition_image_layout(&attachments[1],
+        ctx->cmd_buf,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_QUEUE_FAMILY_EXTERNAL,
+        ctx->qfam_idx,
+		depth_aspects);
+
 	vkCmdClearColorImage(ctx->cmd_buf,
 			     attachments[0].obj.img,
 			     VK_IMAGE_LAYOUT_GENERAL,
 			     &clear_values[0].color,
 			     1,
 			     &img_range);
+
+    img_range.aspectMask = depth_aspects;
+
+    vkCmdClearDepthStencilImage(ctx->cmd_buf,
+        attachments[1].obj.img,
+        VK_IMAGE_LAYOUT_GENERAL,
+        &clear_values[1].depthStencil,
+        1,
+        &img_range);
 
 	vkCmdBeginRenderPass(ctx->cmd_buf, &rp_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1839,7 +1863,8 @@ vk_copy_image_to_buffer(struct vk_ctx *ctx,
 					   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					   VK_QUEUE_FAMILY_EXTERNAL,
-					   ctx->qfam_idx);
+					   ctx->qfam_idx,
+					   VK_IMAGE_ASPECT_COLOR_BIT);
 
 		/* copy image to buf */
 		VkBufferImageCopy copy_region = {
@@ -1866,7 +1891,8 @@ vk_copy_image_to_buffer(struct vk_ctx *ctx,
 					   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					   VK_QUEUE_FAMILY_EXTERNAL,
-					   ctx->qfam_idx);
+					   ctx->qfam_idx,
+					   VK_IMAGE_ASPECT_COLOR_BIT);
 
 		VkBufferMemoryBarrier write_finish_buffer_memory_barrier = {
 			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1949,7 +1975,8 @@ vk_transition_image_layout(struct vk_image_att *img_att,
 			   VkImageLayout old_layout,
 			   VkImageLayout new_layout,
 			   uint32_t src_queue_fam_idx,
-			   uint32_t dst_queue_fam_idx)
+			   uint32_t dst_queue_fam_idx,
+			   VkImageAspectFlags aspect_flags)
 {
 	VkImageMemoryBarrier barrier;
 	struct vk_image_props props = img_att->props;
@@ -1964,7 +1991,7 @@ vk_transition_image_layout(struct vk_image_att *img_att,
 	barrier.srcQueueFamilyIndex = src_queue_fam_idx;
 	barrier.dstQueueFamilyIndex = dst_queue_fam_idx;
 	barrier.image = img_att->obj.img;
-	barrier.subresourceRange.aspectMask = aspect_mask ? aspect_mask : VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.aspectMask = aspect_mask ? aspect_mask : aspect_flags;
 	barrier.subresourceRange.levelCount = 1;
 	barrier.subresourceRange.layerCount = 1;
 

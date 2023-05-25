@@ -253,7 +253,8 @@ vk_transition_image_layout(struct vk_image_att *img_att,
 			   VkImageLayout old_layout,
 			   VkImageLayout new_layout,
 			   uint32_t src_queue_family_index,
-			   uint32_t dst_queue_family_index);
+			   uint32_t dst_queue_family_index,
+			   VkImageAspectFlags aspect_flags);
 
 #if __cplusplus
 } // extern "C"
